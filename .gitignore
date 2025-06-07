@@ -6,6 +6,7 @@
 
 # Executables
 wc/chwc
+json/chjson
 
 # Other stuff
 json/tests.zip
