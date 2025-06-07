@@ -1,1 +1,0 @@
-chwc.o: chwc.c
