@@ -16,8 +16,6 @@
 #define TOKEN_INVALID 5
 #define NUMBER_VALID 6
 #define NUMBER_INVALID 7
-#define IN_ARRAY 8
-#define IN_OBJECT 9
 #define OBJECT_VALID 10
 #define OBJECT_INVALID 11
 #define ARRAY_VALID 12
@@ -154,7 +152,6 @@ pn_st4:
 		goto pn_st4;
 	}
 	if (!numAfterE) return NUMBER_INVALID;
-	//printf("Aqui 2\n");
 	goto pn_st0_1;
 
 pn_end:
