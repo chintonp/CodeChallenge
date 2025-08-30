@@ -6,6 +6,7 @@
 
 # KDevelop
 *.kdev4
+.kdev4/
 
 # Executables
 wc/chwc
