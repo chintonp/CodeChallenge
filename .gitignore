@@ -4,9 +4,13 @@
 # Object files
 *.o
 
+# KDevelop
+*.dev4
+
 # Executables
 wc/chwc
 json/chjson
+compressTool/chcmpss
 
 # Other stuff
 json/tests.zip
