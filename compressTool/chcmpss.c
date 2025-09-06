@@ -10,7 +10,9 @@
 char *inputFile = NULL;
 char *outputFile = NULL;
 bool printPrefixTable = false;
+bool readPrefixTable = false;
 htree_node freqTable[FREQ_TABLE_LEN];
+uint8_t freqTableSize = 0;
 
 int savePrefixTable(ch_ordered_list *huffmanList)
 {
@@ -59,49 +61,19 @@ int calculatePrefixTable (FILE *f)
 		freqTable[i].leftNode = NULL;
 		freqTable[i].rightNode = NULL;
 	}
-	
-//#ifndef _DEBUG
-	
+
 	int c = fgetc(f);
 	
 	while (c != EOF) {
 		/*if (c < 256)*/ freqTable[c].frequency++;
 		c = fgetc(f);
 	}
-	
-//#endif
-
-#ifdef _DEBUG
-
-	// Define table for tests
-/*
-	freqTable['A'].frequency = 1;
-	freqTable['B'].frequency = 2;
-	freqTable['C'].frequency = 9;
-	freqTable['D'].frequency = 5;
-	freqTable['E'].frequency = 11;
-	freqTable['F'].frequency = 1;
-	freqTable['G'].frequency = 3;
-	freqTable['H'].frequency = 2;
-//*/
-//#ifdef _DEBUG
-	printf("\nCharacter frequencies:\n");
-	
-	for (int i = 0; i < FREQ_TABLE_LEN; i++) {
-		if (freqTable[i].frequency == 0) continue;
-		if (i >= 32 && i <= 126) {
-                printf("'%c' : %d\n", i, freqTable[i].frequency);
-        } 
-		else {
-			// For non-printable characters, print their ASCII value
-            printf("ASCII %d : %d\n", i, freqTable[i].frequency);
-        }
-	}
-#endif //_DEBUG
 
 	ch_ordered_list *huffmanList = createHuffmanList(freqTable, FREQ_TABLE_LEN);
 	
 	if (!huffmanList) return ERROR;
+	if (huffmanList -> len == 256) freqTableSize = 0;
+	else freqTableSize = huffmanList -> len & 255;
 	
 	int ret = createBinaryTree(huffmanList);
 
@@ -124,7 +96,6 @@ int calculatePrefixTable (FILE *f)
 int compressFile(FILE *f)
 {
 	rewind(f);
-	//printf("Aqui: cf\n");
 
 	int c = fgetc(f);
 
@@ -137,6 +108,28 @@ int compressFile(FILE *f)
 	return SUCCESS;
 }
 
+int extractFile(FILE *f)
+{
+	prepareExtractPrefixTable();
+
+	uint8_t ui8;
+	int ret = read8(f, &ui8);
+
+	if (ret != CMPSSBUFFER_SUCCESS) {
+error:
+		printf("Error reading file %s\n", inputFile);
+		return ERROR;
+	}
+	if (ui8 != 'C') {
+		printf("Corrupted file %s\n", inputFile);
+		return ERROR;
+	}
+	ret = read8(f, &ui8);
+	if (ret != CMPSSBUFFER_SUCCESS) goto error;
+	freqTableSize = ui8;
+	readFreqTable(f);
+	return SUCCESS;
+}
 
 int main(int argc, char **argv)
 {
@@ -149,8 +142,14 @@ int main(int argc, char **argv)
 		printf ("Could not open file %s\n", inputFile);
 		return ERROR;
 	}
+
+	int ret;
 	
-	int ret = calculatePrefixTable(f);
+	if (readPrefixTable) {
+		ret = extractFile(f);
+		goto end;
+	}
+	ret = calculatePrefixTable(f);
 
 	if (ret == ERROR) {
 		goto end;

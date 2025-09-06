@@ -2,10 +2,12 @@
 #include "cmpssBuffer.h"
 #include <stdio.h>
 
-uint32_t bitBuffer = 0;
+uint8_t bitBuffer = 0;
 int pointer;
 FILE *fout = NULL;
 extern char *outputFile;
+extern uint8_t freqTableSize;
+extern bool readPrefixTable;
 
 #ifdef _DEBUG
 
@@ -45,20 +47,32 @@ void printUI32AsBinary(uint32_t ui32) {
 
 #endif // _DEBUG
 
+uint32_t invertByteOrder (const uint32_t ui32)
+{
+    uint32_t invertOrder = 0;
+
+    for (int i = 0; i < 4; i++) {
+        uint32_t tmp = ui32;
+
+        tmp >>= (8 * i);
+        tmp &=255;
+        invertOrder <<= 8;
+        invertOrder |= tmp;
+    }
+    return invertOrder;
+}
+
 int saveBuffer(void)
 {
-    if (pointer < 31) {
+    /*if (pointer < 31) {
         for (int i = 31; i >= pointer; i--) {
-            //printUI32AsBinary(bitBuffer);
             bitBuffer <<= 1;
         }
     }
-#ifdef _DEBUG
-    //printUI32AsBinary(bitBuffer);
-#endif
 
-    uint32_t invertOrder = 0;
-    for (int i = 0; i < 4; i++) {
+    uint32_t invertOrder = invertByteOrder(bitBuffer);
+    */
+    /*for (int i = 0; i < 4; i++) {
         uint32_t tmp = bitBuffer;
 
         tmp >>= (8 * i);
@@ -66,22 +80,19 @@ int saveBuffer(void)
         invertOrder <<= 8;
         invertOrder |= tmp;
         //printUI32AsBinary(invertOrder);
-    }
-    int ret = fwrite(&invertOrder, sizeof(invertOrder), 1, fout);
-
-    //printf("fwrite: %d\n", ret);
+    }*/
+    int ret = fwrite(&bitBuffer, sizeof(bitBuffer), 1, fout);
 
     if (ret != 1) return CMPSSBUFFER_WRITE_ERROR;
     return CMPSSBUFFER_SUCCESS;
 }
 
 int saveBit(unsigned bit) {
-    //printf("saveBit\n");
     bitBuffer = bitBuffer << 1;
-    pointer ++;
+    pointer++;
     if (bit) bitBuffer |= 1;
     else bitBuffer &= ~(1);
-    if (pointer == 32) {
+    if (pointer == 8) {
         int ret = saveBuffer();
 
         if (ret != CMPSSBUFFER_SUCCESS) return ret;
@@ -93,9 +104,6 @@ int saveBit(unsigned bit) {
 
 int save8(uint8_t b8)
 {
-    //printf("save8 - %c\n", b8);
-    //printByteAsBinary(b8);
-
     for (int i = 0; i < 8; i++) {
         int ret;
 
@@ -116,7 +124,8 @@ int prepareBitBuffer(void)
 
     int ret = save8('C');
     //printUI32AsBinary(bitBuffer);
-
+    if (ret != CMPSSBUFFER_SUCCESS) return ret;
+    ret = save8(freqTableSize);
     return ret;
 }
 
@@ -204,5 +213,106 @@ int saveFrequency(char *freq)
         idx++;
     }
     //printf("!\n");
+    return CMPSSBUFFER_SUCCESS;
+}
+
+void prepareExtractPrefixTable(void)
+{
+    bitBuffer = 0;
+    pointer = 8;
+}
+
+int readBit(FILE *fin, uint8_t *bit)
+{
+    if (pointer == 8) {
+        int ret = fread(&bitBuffer, sizeof(bitBuffer), 1, fin);
+
+        //bitBuffer = invertByteOrder(bitBuffer);
+        //printUI32AsBinary(bitBuffer);
+
+        if (ret != 1) {
+            if (feof(fin)) return CMPSSBUFFER_READ_EOF;
+        }
+        pointer = 0;
+    }
+    uint8_t temp8 = bitBuffer;
+
+    temp8 >>= (7 - pointer);
+    temp8 &= 1;
+    if (temp8 == 1) *bit = 1;
+    else *bit = 0;
+    pointer ++;
+    return CMPSSBUFFER_SUCCESS;
+}
+
+int read8(FILE *fin, uint8_t *p_ui8)
+{
+    uint8_t ui8 = 0;
+
+    for (int i = 0; i < 8; i++) {
+        //printByteAsBinary(ui8);
+        uint8_t bit;
+        int ret = readBit(fin, &bit);
+
+        ui8 <<= 1;
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
+        if (bit == 1) ui8 |= 1;
+        //printf("%d - ", bit);
+    }
+    *p_ui8 = ui8;
+    //printByteAsBinary(ui8);
+    return CMPSSBUFFER_SUCCESS;
+}
+
+int readPrefixCode(FILE *fin)
+{
+    bool ft_end = false;
+    char prefix[256] = "\0";
+    int pointer = 0;
+
+    while (!ft_end) {
+        uint8_t bit1, bit2;
+        int ret = readBit(fin, &bit1);
+
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
+        //printf("%d - ", bit1);
+        ret = readBit(fin, &bit2);
+        //printf("%d - ", bit2);
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
+        if ((bit1 == 1 && bit2 == 1) || (bit1 == 0 && bit2 == 0)) prefix[pointer++] = '0' + bit1;
+        else if (bit1 == 1 && bit2 == 0) {
+            prefix[pointer] = 0;
+            ft_end = true;
+            if (readPrefixTable) printf("%s\n", prefix);
+        }
+        else {
+            printf("\nCorruped file\n");
+            return CMPSSBUFFER_CORRUPTED_FILE;
+        }
+    }
+    return CMPSSBUFFER_SUCCESS;
+}
+
+int readFreqTable(FILE *fin)
+{
+    int freqLen = (freqTableSize) ? freqTableSize : 256;
+
+    //printf("Len: %d\n",freqLen);
+    for (int i = 0; i < freqLen; i++) {
+        uint8_t ui8;
+        int ret = read8(fin, &ui8);
+
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
+        if (readPrefixTable) {
+            if (ui8 >= 32 && ui8 <= 126) {
+                printf("'%c' : ", ui8);
+            }
+            else {
+                // For non-printable characters, print their ASCII value
+                printf("ASCII %d : ", ui8);
+            }
+        }
+        readPrefixCode(fin);
+    }
     return CMPSSBUFFER_SUCCESS;
 }
