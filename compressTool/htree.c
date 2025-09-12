@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-//#include "cmpssBuffer.h"
 
 extern bool printPrefixTable;
+htree_node *ht_root = NULL;
 
 int huffmanCompare (void *node1, void *node2)
 {
@@ -167,4 +167,45 @@ int createPrefixTable(ch_ordered_list *list)
 
 	return ret;
 }
+
+int createPrefixNode(uint8_t letter, char *prefix)
+{
+	if (!ht_root) {
+		ht_root = createHuffmanNode(0 ,0);
+		if (!ht_root) return HT_ERROR;
+	}
+
+	int prefixLen = strlen(prefix);
+	htree_node *node = ht_root;
+	char bit;
+
+	for (int i = 0; i < (prefixLen - 1); i++) {
+		bit = prefix[i];
+
+		htree_node *ht_next = (bit == '0') ? node -> leftNode : node -> rightNode;
+
+		if (!ht_next) {
+			ht_next = createHuffmanNode(0, 0);
+			if (!ht_next) return HT_ERROR;
+			if (bit == '0') node ->leftNode = ht_next;
+			else node -> rightNode = ht_next;
+		}
+		node = ht_next;
+	}
+
+	htree_node *leafNode = createHuffmanNode(letter, 0);
+
+	if (!leafNode) return HT_ERROR;
+	bit = prefix[prefixLen -1];
+	if (bit == '0') node ->leftNode = leafNode;
+	else node -> rightNode = leafNode;
+
+	return HT_SUCCESS;
+}
+
+void destroyPrefixTable(void)
+{
+	destroyHuffmanNode(ht_root);
+}
+
 

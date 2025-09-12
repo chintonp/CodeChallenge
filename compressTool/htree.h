@@ -23,5 +23,7 @@ ch_ordered_list *createHuffmanList (htree_node [], unsigned);
 htree_node *createHuffmanNode(char, unsigned);
 int createBinaryTree(ch_ordered_list *);
 int createPrefixTable(ch_ordered_list *);
+int createPrefixNode(uint8_t, char *);
+void destroyPrefixTable(void);
 
 #endif // _H_TREE_H

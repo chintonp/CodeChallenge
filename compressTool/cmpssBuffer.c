@@ -2,12 +2,18 @@
 #include "cmpssBuffer.h"
 #include <stdio.h>
 
+#ifdef _DEBUG
+#include <inttypes.h>
+#endif
+
 uint8_t bitBuffer = 0;
 int pointer;
 FILE *fout = NULL;
 extern char *outputFile;
 extern uint8_t freqTableSize;
 extern bool readPrefixTable;
+extern uint64_t fileLen;
+extern htree_node *ht_root;
 
 #ifdef _DEBUG
 
@@ -123,8 +129,23 @@ int prepareBitBuffer(void)
     if (fout == NULL) return CMPSSBUFFER_OUTPUT_ERROR;
 
     int ret = save8('C');
-    //printUI32AsBinary(bitBuffer);
+
     if (ret != CMPSSBUFFER_SUCCESS) return ret;
+
+    int len = 64 / 8;
+
+    //printf("len: %d\n", len);
+
+    //printf("Len %" PRIu64 "\n", fileLen);
+    for (int i = 0; i < len; i++) {
+        uint8_t byte = (fileLen >> ((len - i - 1) * 8)) & 255;
+
+        //printf("%d - ", i);
+        //printByteAsBinary(byte);
+        ret = save8(byte);
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
+    }
+
     ret = save8(freqTableSize);
     return ret;
 }
@@ -178,12 +199,8 @@ int saveNode(htree_node *ht_node)
 
 int finishSavingPrefixTable(void)
 {
-    int ret = save8('!');
-
-    if (ret != CMPSSBUFFER_SUCCESS) return ret;
-    ret = saveBit(0);
-    if (ret != CMPSSBUFFER_SUCCESS) return ret;
-    return saveBit(1);
+    //return save8('!');
+    return CMPSSBUFFER_SUCCESS;
 }
 
 int closeBitBuffer(void)
@@ -199,15 +216,15 @@ int saveFrequency(char *freq)
     int idx = 0,
         ret;
 
-    //printf("%s: ", freq);
-
     while(freq[idx] != 0) {
         //printf("%d ", idx);
         if (freq[idx] == '0') {
             ret = saveBit(0);
+            //printf("0");
             if (ret != CMPSSBUFFER_SUCCESS) return ret;
         } else if (freq[idx] == '1') {
             ret = saveBit(1);
+            //printf("1");
             if (ret != CMPSSBUFFER_SUCCESS) return ret;
         } else return CMPSSBUFFER_FREQ_TABLE_INTERNAL_ERROR;
         idx++;
@@ -228,7 +245,8 @@ int readBit(FILE *fin, uint8_t *bit)
         int ret = fread(&bitBuffer, sizeof(bitBuffer), 1, fin);
 
         //bitBuffer = invertByteOrder(bitBuffer);
-        //printUI32AsBinary(bitBuffer);
+        //printf(">> ");
+        //printByteAsBinary(bitBuffer);
 
         if (ret != 1) {
             if (feof(fin)) return CMPSSBUFFER_READ_EOF;
@@ -264,7 +282,7 @@ int read8(FILE *fin, uint8_t *p_ui8)
     return CMPSSBUFFER_SUCCESS;
 }
 
-int readPrefixCode(FILE *fin)
+int readPrefixCode(FILE *fin, uint8_t letter)
 {
     bool ft_end = false;
     char prefix[256] = "\0";
@@ -284,6 +302,13 @@ int readPrefixCode(FILE *fin)
             prefix[pointer] = 0;
             ft_end = true;
             if (readPrefixTable) printf("%s\n", prefix);
+            else {
+                ret = createPrefixNode(letter, prefix);
+                if (ret != HT_SUCCESS) {
+                    printf("Not enoygh memory!\n");
+                    return CMPSSBUFFER_NOT_ENOYGH_MEMORY;
+                }
+            }
         }
         else {
             printf("\nCorruped file\n");
@@ -312,7 +337,34 @@ int readFreqTable(FILE *fin)
                 printf("ASCII %d : ", ui8);
             }
         }
-        readPrefixCode(fin);
+        ret = readPrefixCode(fin, ui8);
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
     }
+    return CMPSSBUFFER_SUCCESS;
+}
+
+int readLetter(FILE *fin, uint8_t *p_ui8)
+{
+    uint8_t bit;
+    int ret;
+    htree_node *node = ht_root;
+    bool foundLetter = false;
+
+    if (!node) return CMPSSBUFFER_FREQ_TABLE_INTERNAL_ERROR;
+    if (fileLen == 0) return CMPSSBUFFER_READ_EOF;
+    while (!foundLetter) {
+        ret = readBit(fin, &bit);
+        if (ret != CMPSSBUFFER_SUCCESS) return ret;
+        //printf("Bit: %d\n", bit);
+        if (bit == 0) node = node -> leftNode;
+        else node = node -> rightNode;
+
+        if (!node -> leftNode && !node -> rightNode) { // It's a leafNode
+            *p_ui8 = node -> letter;
+            foundLetter = true;
+        }
+    }
+    //printf(" - ASCII %d [%c]\n", *p_ui8, *p_ui8);
+    fileLen--;
     return CMPSSBUFFER_SUCCESS;
 }

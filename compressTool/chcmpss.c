@@ -3,6 +3,10 @@
 #include "htree.h"
 #include "cmpssBuffer.h"
 
+#ifdef _DEBUG
+#include <inttypes.h>
+#endif
+
 #define SUCCESS 0
 #define ERROR -1
 #define FREQ_TABLE_LEN 256
@@ -11,8 +15,10 @@ char *inputFile = NULL;
 char *outputFile = NULL;
 bool printPrefixTable = false;
 bool readPrefixTable = false;
+bool decompressFile = false;
 htree_node freqTable[FREQ_TABLE_LEN];
 uint8_t freqTableSize = 0;
+uint64_t fileLen = 0;
 
 int savePrefixTable(ch_ordered_list *huffmanList)
 {
@@ -66,6 +72,7 @@ int calculatePrefixTable (FILE *f)
 	
 	while (c != EOF) {
 		/*if (c < 256)*/ freqTable[c].frequency++;
+		fileLen++;
 		c = fgetc(f);
 	}
 
@@ -99,7 +106,9 @@ int compressFile(FILE *f)
 
 	int c = fgetc(f);
 
-	while (c != EOF) {
+	while (c != EOF)
+	{
+		//printf("%c - ", c);
 		int ret = saveFrequency(freqTable[c].prefixCode);
 
 		if (ret != CMPSSBUFFER_SUCCESS) return ERROR;
@@ -124,10 +133,44 @@ error:
 		printf("Corrupted file %s\n", inputFile);
 		return ERROR;
 	}
+
+	int len = 64 / 8;
+
+	for (int i = 0; i < len; i++) {
+		ret = read8(f, &ui8);
+		if (ret != CMPSSBUFFER_SUCCESS) return ret;
+		fileLen <<= 8;
+		fileLen |= ui8;
+	}
 	ret = read8(f, &ui8);
 	if (ret != CMPSSBUFFER_SUCCESS) goto error;
 	freqTableSize = ui8;
-	readFreqTable(f);
+	ret = readFreqTable(f);
+	if (ret != CMPSSBUFFER_SUCCESS) {
+		if (decompressFile) destroyPrefixTable();
+		return ERROR;
+	}
+	if (readPrefixTable) return SUCCESS;
+
+	FILE *fout = fopen(outputFile, "wb");
+
+	if (!fout) {
+		printf("Could not open output file %s\n", outputFile);
+		destroyPrefixTable();
+		return ERROR;
+	}
+	while ((ret = readLetter(f, &ui8)) == CMPSSBUFFER_SUCCESS) {
+		ret = fwrite(&ui8, sizeof(ui8), 1, fout);
+		if (ret != 1) {
+			printf("Could not write to output file %s\n", outputFile);
+			destroyPrefixTable();
+			fclose(fout);
+			return ERROR;
+		}
+	}
+	destroyPrefixTable();
+	fclose(fout);
+	if (ret != CMPSSBUFFER_READ_EOF || (ret == CMPSSBUFFER_READ_EOF  && !fileLen )) return ERROR;
 	return SUCCESS;
 }
 
@@ -145,7 +188,7 @@ int main(int argc, char **argv)
 
 	int ret;
 	
-	if (readPrefixTable) {
+	if (readPrefixTable || decompressFile) {
 		ret = extractFile(f);
 		goto end;
 	}
